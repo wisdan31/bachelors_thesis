@@ -1,4 +1,5 @@
 import time
+from worlds import omniscient_dijkstra
 
 class Simulation:
     def __init__(self, agent, env, max_steps=10000):
@@ -14,6 +15,7 @@ class Simulation:
 class SimpleSimulation(Simulation):
     def run(self):
         steps = 0
+        total_cost = 0
         start_time = time.time()
         
         while not self.env.is_terminal() and steps < self.max_steps:
@@ -28,8 +30,9 @@ class SimpleSimulation(Simulation):
                 # Agent got stuck or gave up
                 break
                 
-            self.env.step(action)
+            _, step_cost = self.env.step(action)
             steps += 1
+            total_cost += step_cost
 
         end_time = time.time()
         
@@ -39,6 +42,7 @@ class SimpleSimulation(Simulation):
         self.metrics = {
             "success": success,
             "steps": steps,
+            "total_cost": total_cost,
             "unique_nodes": unique_nodes_visited,
             "time_seconds": end_time - start_time
         }
@@ -61,15 +65,22 @@ class BatchSimulation:
             # Create a shared environment configuration for this run so all agents face the same maze
             base_env = self.env_factory(run_idx)
             
+            # Compute omniscient optimal path as a benchmark
+            opt_cost, opt_len = omniscient_dijkstra(base_env.grid, base_env.start, base_env.goal)
+            
             for name, agent_factory in self.agent_factories.items():
                 import copy
-                # Deepcopy grid to avoid agents modifying shared state if we ever allow it,
-                # though our agents don't modify the env directly.
                 env = copy.deepcopy(base_env)
                 agent = agent_factory()
                 
                 sim = SimpleSimulation(agent, env)
                 metrics = sim.run()
+                
+                # Append benchmark comparison
+                metrics["optimal_cost"] = opt_cost
+                metrics["optimal_len"] = opt_len
+                metrics["cost_ratio"] = metrics["total_cost"] / opt_cost if opt_cost > 0 else 1.0
+                
                 self.results[name].append(metrics)
                 
         return self.results

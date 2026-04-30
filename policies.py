@@ -9,7 +9,7 @@ class Policy:
 class ExplorePolicy(Policy):
     def __init__(self, goal_pos=None):
         self.goal_pos = goal_pos
-        self.graph = {} # pos -> {action: next_pos}
+        self.graph = {} # pos -> {action: {"pos": next_pos, "cost": cost}}
         self.visited = set()
         self.frontier = []
         self.frontier_set = set()
@@ -22,17 +22,25 @@ class ExplorePolicy(Policy):
         raise NotImplementedError
         
     def find_path_in_known_graph(self, start, target):
-        queue = collections.deque([(start, [])])
-        visited = {start}
-        while queue:
-            curr, path = queue.popleft()
+        # Use Dijkstra to find the lowest cost path in the currently known graph
+        pq = [(0, start, [])] # (cost, current_pos, path_of_actions)
+        visited = set()
+        
+        while pq:
+            cost, curr, path = heapq.heappop(pq)
             if curr == target:
                 return path
+                
+            if curr in visited:
+                continue
+            visited.add(curr)
+            
             if curr in self.graph:
-                for action, next_pos in self.graph[curr].items():
+                for action, data in self.graph[curr].items():
+                    next_pos = data["pos"]
+                    step_cost = data["cost"]
                     if next_pos not in visited:
-                        visited.add(next_pos)
-                        queue.append((next_pos, path + [action]))
+                        heapq.heappush(pq, (cost + step_cost, next_pos, path + [action]))
         return []
 
     def select(self, observation):
@@ -41,7 +49,8 @@ class ExplorePolicy(Policy):
         self.graph[current_pos] = valid_neighbors
         self.visited.add(current_pos)
         
-        for action, next_pos in valid_neighbors.items():
+        for action, data in valid_neighbors.items():
+            next_pos = data["pos"]
             if next_pos not in self.visited and next_pos not in self.frontier_set:
                 self.add_to_frontier(next_pos)
                 self.frontier_set.add(next_pos)

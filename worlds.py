@@ -1,5 +1,6 @@
 import numpy as np
 import random
+import heapq
 
 def empty_grid(size):
     return np.zeros((size, size), dtype=int)
@@ -62,3 +63,65 @@ def maze_grid(size, seed=None):
              grid[size-2, size-1] = 0
 
     return grid
+
+def imperfect_maze_grid(size, wall_knockdown_prob=0.08, mud_prob=0.15, seed=None):
+    """
+    Generates an imperfect maze with multiple paths and weighted terrain.
+    0 = Fast floor (cost 1)
+    1 = Wall (impassable)
+    2 = Mud / Slow terrain (cost 3)
+    """
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+        
+    grid = maze_grid(size, seed)
+    
+    # Knock down some internal walls to create loops
+    for r in range(1, size - 1):
+        for c in range(1, size - 1):
+            if grid[r, c] == 1:
+                if random.random() < wall_knockdown_prob:
+                    grid[r, c] = 0
+                    
+    # Add mud/slow terrain to open paths
+    for r in range(size):
+        for c in range(size):
+            if grid[r, c] == 0:
+                # Don't put mud on the start or goal
+                if (r, c) == (0, 0) or (r, c) == (size-1, size-1):
+                    continue
+                if random.random() < mud_prob:
+                    grid[r, c] = 2
+                    
+    return grid
+
+def omniscient_dijkstra(grid, start, goal):
+    """
+    Finds the true optimal path cost seeing the whole map.
+    Returns (optimal_cost, optimal_path_length).
+    """
+    size = len(grid)
+    pq = [(0, start, [start])] # (cost, pos, path)
+    visited = set()
+    
+    while pq:
+        cost, pos, path = heapq.heappop(pq)
+        
+        if pos == goal:
+            return cost, len(path) - 1
+            
+        if pos in visited:
+            continue
+        visited.add(pos)
+        
+        r, c = pos
+        for dr, dc in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < size and 0 <= nc < size:
+                cell_type = grid[nr, nc]
+                if cell_type != 1: # Not a wall
+                    step_cost = 3 if cell_type == 2 else 1
+                    heapq.heappush(pq, (cost + step_cost, (nr, nc), path + [(nr, nc)]))
+                    
+    return float('inf'), 0
