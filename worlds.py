@@ -124,4 +124,191 @@ def omniscient_dijkstra(grid, start, goal):
                     step_cost = 3 if cell_type == 2 else 1
                     heapq.heappush(pq, (cost + step_cost, (nr, nc), path + [(nr, nc)]))
                     
-    return float('inf'), 0
+    return float('inf'), 0
+
+
+# ============================================================
+# PRESET MAZES - Each tests a specific aspect of agent behavior
+# ============================================================
+
+def preset_narrow_corridors(size, seed=7):
+    """
+    Preset 1: Narrow Corridors (Perfect Maze)
+    A pure recursive backtracking maze with NO walls knocked down.
+    Only one path exists between any two points.
+    Tests: DFS excels here (follows the single winding path).
+           BFS wastes enormous effort exploring all dead ends.
+    """
+    return maze_grid(size, seed=seed)
+
+def preset_open_arena(size, seed=12):
+    """
+    Preset 2: Open Arena
+    A mostly open grid with scattered pillar-like obstacles.
+    Tests: BFS finds the shortest path easily since the space is wide open.
+           DFS may wander far from the goal in the open space.
+           A* should perform best due to its heuristic in open terrain.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    grid = np.zeros((size, size), dtype=int)
+    
+    # Place scattered pillar clusters
+    for _ in range(size * size // 8):
+        r = random.randint(1, size - 2)
+        c = random.randint(1, size - 2)
+        grid[r, c] = 1
+        # Sometimes extend pillar into an L-shape
+        if random.random() < 0.4:
+            dr, dc = random.choice([(-1, 0), (1, 0), (0, -1), (0, 1)])
+            nr, nc = r + dr, c + dc
+            if 1 <= nr < size - 1 and 1 <= nc < size - 1:
+                grid[nr, nc] = 1
+    
+    # Always keep start and goal clear
+    grid[0, 0] = 0
+    grid[size-1, size-1] = 0
+    # Clear a small area around start and goal
+    for dr in range(-1, 2):
+        for dc in range(-1, 2):
+            for pr, pc in [(0, 0), (size-1, size-1)]:
+                nr, nc = pr + dr, pc + dc
+                if 0 <= nr < size and 0 <= nc < size:
+                    grid[nr, nc] = 0
+    return grid
+
+def preset_heavy_mud(size, seed=42):
+    """
+    Preset 3: Heavy Mud Swamp
+    A maze where the direct path is flooded with mud (cost 3),
+    but longer alternative corridors are clean (cost 1).
+    Tests: A* with cost-awareness should find the cheaper detour.
+           Greedy agents (DFS) will walk straight through mud.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    grid = maze_grid(size, seed=seed)
+    
+    # Knock down some walls to create alternative routes
+    for r in range(1, size - 1):
+        for c in range(1, size - 1):
+            if grid[r, c] == 1 and random.random() < 0.12:
+                grid[r, c] = 0
+    
+    # Flood a diagonal band with mud (the "direct" path area)
+    for r in range(size):
+        for c in range(size):
+            if grid[r, c] == 0 and (r, c) != (0, 0) and (r, c) != (size-1, size-1):
+                # Distance from the main diagonal
+                dist_from_diag = abs(r - c)
+                if dist_from_diag < size // 3:
+                    if random.random() < 0.55:
+                        grid[r, c] = 2
+    
+    return grid
+
+def preset_spiral_trap(size, seed=99):
+    """
+    Preset 4: Spiral Trap
+    A spiral maze that forces agents inward before letting them reach the goal.
+    The goal appears close (Manhattan distance is small) but the actual path
+    spirals around the entire grid.
+    Tests: A* heuristic gets "tricked" by proximity — it keeps trying to go
+           straight but hits walls. DFS may find the spiral path faster.
+    """
+    grid = np.ones((size, size), dtype=int)
+    
+    # Carve a spiral path
+    r, c = 0, 0
+    grid[r, c] = 0
+    
+    top, bottom, left, right = 0, size - 1, 0, size - 1
+    
+    while top <= bottom and left <= right:
+        # Go right along top
+        for c in range(left, right + 1):
+            if 0 <= c < size and 0 <= top < size:
+                grid[top, c] = 0
+        top += 2
+        
+        # Go down along right
+        for r in range(top - 1, bottom + 1):
+            if 0 <= r < size and 0 <= right < size:
+                grid[r, right] = 0
+        right -= 2
+        
+        # Go left along bottom
+        if top <= bottom:
+            for c in range(right + 1, left - 1, -1):
+                if 0 <= c < size and 0 <= bottom < size:
+                    grid[bottom, c] = 0
+            bottom -= 2
+        
+        # Go up along left
+        if left <= right:
+            for r in range(bottom + 1, top - 1, -1):
+                if 0 <= r < size and 0 <= left < size:
+                    grid[r, left] = 0
+            left += 2
+    
+    grid[0, 0] = 0
+    grid[size-1, size-1] = 0
+    # Ensure goal is connected — open a cell next to it if needed
+    if size > 1:
+        if grid[size-2, size-1] == 1 and grid[size-1, size-2] == 1:
+            grid[size-1, size-2] = 0
+    
+    return grid
+
+def preset_dense_multipath(size, seed=55):
+    """
+    Preset 5: Dense Multi-Path Network
+    A maze with many walls knocked down (25%), creating a dense network
+    of interconnected corridors with many possible routes.
+    Tests: Agents with smarter frontier prioritization (A*) should
+           navigate efficiently. BFS explores too many branches.
+           Random agent gets lost in the abundance of choices.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    grid = maze_grid(size, seed=seed)
+    
+    # Aggressively knock down walls
+    for r in range(1, size - 1):
+        for c in range(1, size - 1):
+            if grid[r, c] == 1 and random.random() < 0.25:
+                grid[r, c] = 0
+    
+    # Sprinkle some mud patches for cost variety
+    for r in range(size):
+        for c in range(size):
+            if grid[r, c] == 0 and (r, c) != (0, 0) and (r, c) != (size-1, size-1):
+                if random.random() < 0.08:
+                    grid[r, c] = 2
+    
+    return grid
+
+
+# Registry of all presets for easy access
+MAZE_PRESETS = {
+    "Narrow Corridors": {
+        "fn": preset_narrow_corridors,
+        "desc": "Perfect maze, single path. Tests DFS vs BFS."
+    },
+    "Open Arena": {
+        "fn": preset_open_arena,
+        "desc": "Wide open space with pillars. Tests heuristic navigation."
+    },
+    "Heavy Mud Swamp": {
+        "fn": preset_heavy_mud,
+        "desc": "Diagonal mud band. Tests cost-aware pathfinding."
+    },
+    "Spiral Trap": {
+        "fn": preset_spiral_trap,
+        "desc": "Spiral path. Tricks proximity-based heuristics."
+    },
+    "Dense Multi-Path": {
+        "fn": preset_dense_multipath,
+        "desc": "Many routes available. Tests decision-making."
+    },
+}
