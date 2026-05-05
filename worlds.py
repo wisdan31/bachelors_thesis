@@ -131,13 +131,15 @@ def omniscient_dijkstra(grid, start, goal):
 # PRESET MAZES - Each tests a specific aspect of agent behavior
 # ============================================================
 
-def preset_narrow_corridors(size, seed=7):
+def preset_narrow_corridors(size, seed=119):
     """
     Preset 1: Narrow Corridors (Perfect Maze)
     A pure recursive backtracking maze with NO walls knocked down.
     Only one path exists between any two points.
-    Tests: DFS excels here (follows the single winding path).
-           BFS wastes enormous effort exploring all dead ends.
+    Seed 119 produces a path of 192 steps on a 21x21 grid — genuinely
+    winding with many turns and dead ends.
+    Tests: DFS excels here (follows the single winding path naturally).
+           BFS wastes enormous effort exploring all dead-end branches.
     """
     return maze_grid(size, seed=seed)
 
@@ -207,56 +209,113 @@ def preset_heavy_mud(size, seed=42):
     
     return grid
 
-def preset_spiral_trap(size, seed=99):
+def preset_rooms_bottlenecks(size, seed=33):
     """
-    Preset 4: Spiral Trap
-    A spiral maze that forces agents inward before letting them reach the goal.
-    The goal appears close (Manhattan distance is small) but the actual path
-    spirals around the entire grid.
-    Tests: A* heuristic gets "tricked" by proximity — it keeps trying to go
-           straight but hits walls. DFS may find the spiral path faster.
+    Preset 4: Rooms & Bottlenecks
+    Large open rooms connected by narrow single-cell corridor openings.
+    The agent must discover the tiny doorways between rooms to progress.
+    Tests: In open rooms, DFS wastes time exploring corners.
+           BFS floods each room but finds doorways systematically.
+           A* benefits from heuristic to head toward the goal-side wall.
+           Random agent gets lost bouncing around rooms.
     """
+    random.seed(seed)
+    np.random.seed(seed)
     grid = np.ones((size, size), dtype=int)
     
-    # Carve a spiral path
-    r, c = 0, 0
-    grid[r, c] = 0
+    # Define a 3x3 arrangement of rooms
+    room_count = 3
+    # Calculate room dimensions (leave space for walls between)
+    wall_positions = []
+    room_size = (size - (room_count + 1)) // room_count  # inner size of each room
     
-    top, bottom, left, right = 0, size - 1, 0, size - 1
+    # Carve out each room
+    rooms = []
+    for ri in range(room_count):
+        for ci in range(room_count):
+            # Top-left corner of the room (leaving 1-cell wall border)
+            r_start = 1 + ri * (room_size + 1)
+            c_start = 1 + ci * (room_size + 1)
+            r_end = r_start + room_size
+            c_end = c_start + room_size
+            
+            # Clamp to grid bounds
+            r_end = min(r_end, size - 1)
+            c_end = min(c_end, size - 1)
+            
+            rooms.append((r_start, c_start, r_end, c_end))
+            
+            for r in range(r_start, r_end):
+                for c in range(c_start, c_end):
+                    grid[r, c] = 0
     
-    while top <= bottom and left <= right:
-        # Go right along top
-        for c in range(left, right + 1):
-            if 0 <= c < size and 0 <= top < size:
-                grid[top, c] = 0
-        top += 2
-        
-        # Go down along right
-        for r in range(top - 1, bottom + 1):
-            if 0 <= r < size and 0 <= right < size:
-                grid[r, right] = 0
-        right -= 2
-        
-        # Go left along bottom
-        if top <= bottom:
-            for c in range(right + 1, left - 1, -1):
-                if 0 <= c < size and 0 <= bottom < size:
-                    grid[bottom, c] = 0
-            bottom -= 2
-        
-        # Go up along left
-        if left <= right:
-            for r in range(bottom + 1, top - 1, -1):
-                if 0 <= r < size and 0 <= left < size:
-                    grid[r, left] = 0
-            left += 2
+    # Connect adjacent rooms with narrow doorways (1-2 cell openings)
+    for ri in range(room_count):
+        for ci in range(room_count):
+            idx = ri * room_count + ci
+            r_start, c_start, r_end, c_end = rooms[idx]
+            
+            # Connect to the room on the right
+            if ci < room_count - 1:
+                right_idx = ri * room_count + (ci + 1)
+                rr_start, rc_start, rr_end, rc_end = rooms[right_idx]
+                # Pick 1-2 random rows for doorways in the shared wall
+                wall_col = c_end  # the wall column between rooms
+                possible_rows = list(range(max(r_start, rr_start) + 1, min(r_end, rr_end) - 1))
+                if possible_rows:
+                    door_row = random.choice(possible_rows)
+                    grid[door_row, wall_col] = 0
+                    # Sometimes add a second doorway for variety
+                    if len(possible_rows) > 2 and random.random() < 0.4:
+                        possible_rows.remove(door_row)
+                        grid[random.choice(possible_rows), wall_col] = 0
+            
+            # Connect to the room below
+            if ri < room_count - 1:
+                below_idx = (ri + 1) * room_count + ci
+                br_start, bc_start, br_end, bc_end = rooms[below_idx]
+                # Pick 1-2 random columns for doorways
+                wall_row = r_end
+                possible_cols = list(range(max(c_start, bc_start) + 1, min(c_end, bc_end) - 1))
+                if possible_cols:
+                    door_col = random.choice(possible_cols)
+                    grid[wall_row, door_col] = 0
+                    if len(possible_cols) > 2 and random.random() < 0.4:
+                        possible_cols.remove(door_col)
+                        grid[random.choice(possible_cols), wall_row] = 0
     
+    # Ensure start and goal are open
     grid[0, 0] = 0
     grid[size-1, size-1] = 0
-    # Ensure goal is connected — open a cell next to it if needed
-    if size > 1:
-        if grid[size-2, size-1] == 1 and grid[size-1, size-2] == 1:
-            grid[size-1, size-2] = 0
+    # Connect start to first room
+    r_s, c_s, _, _ = rooms[0]
+    grid[0, 1] = 0  # bridge from (0,0) into first room
+    if r_s > 0:
+        for r in range(0, r_s):
+            grid[r, 1] = 0
+    # Connect last room to goal
+    _, _, r_e, c_e = rooms[-1]
+    if r_e < size - 1:
+        grid[r_e, c_e - 1] = 0
+        for r in range(r_e, size):
+            grid[r, c_e - 1] = 0
+    if c_e < size - 1:
+        grid[size - 2, c_e] = 0
+        for c in range(c_e, size):
+            grid[size - 2, c] = 0
+    grid[size-1, size-1] = 0
+    
+    # Add some mud inside certain rooms for cost variety
+    for ri in range(room_count):
+        for ci in range(room_count):
+            idx = ri * room_count + ci
+            r_start, c_start, r_end, c_end = rooms[idx]
+            if random.random() < 0.4:  # ~40% of rooms get mud
+                for r in range(r_start, r_end):
+                    for c in range(c_start, c_end):
+                        if grid[r, c] == 0 and random.random() < 0.3:
+                            if (r, c) != (0, 0) and (r, c) != (size-1, size-1):
+                                grid[r, c] = 2
     
     return grid
 
@@ -293,7 +352,7 @@ def preset_dense_multipath(size, seed=55):
 MAZE_PRESETS = {
     "Narrow Corridors": {
         "fn": preset_narrow_corridors,
-        "desc": "Perfect maze, single path. Tests DFS vs BFS."
+        "desc": "Perfect maze, long winding path. Tests DFS vs BFS."
     },
     "Open Arena": {
         "fn": preset_open_arena,
@@ -303,9 +362,9 @@ MAZE_PRESETS = {
         "fn": preset_heavy_mud,
         "desc": "Diagonal mud band. Tests cost-aware pathfinding."
     },
-    "Spiral Trap": {
-        "fn": preset_spiral_trap,
-        "desc": "Spiral path. Tricks proximity-based heuristics."
+    "Rooms & Bottlenecks": {
+        "fn": preset_rooms_bottlenecks,
+        "desc": "Open rooms, narrow doorways. Tests chokepoint discovery."
     },
     "Dense Multi-Path": {
         "fn": preset_dense_multipath,
